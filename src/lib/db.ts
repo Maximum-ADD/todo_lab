@@ -1,19 +1,21 @@
+// AI Declaration: Generated with the assistance of Claude-Web[Claude Sonnet 5]
+
 import Database from 'better-sqlite3';
 import path from 'path';
-
-// The .db file will be created in your project root the first time this runs
-const dbPath = path.join(process.cwd(), 'data', 'app.db');
-
-// Ensure the data folder exists
 import fs from 'fs';
+import { initSchema } from './schema';
+
 const dataDir = path.join(process.cwd(), 'data');
 if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir);
+  fs.mkdirSync(dataDir, { recursive: true });
 }
 
-const db = new Database(dbPath);
+const dbPath = path.join(dataDir, 'app.db');
 
-// Recommended pragmas for a local single-user app
-db.pragma('journal_mode = WAL'); // faster, safer writes
+const db = new Database(dbPath);
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
+
+initSchema(db);
 
 export default db;
