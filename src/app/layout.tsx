@@ -11,7 +11,7 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
-// AI Declaration: "export const metadata = {" was enerated with the assistance of Claude-Web[Claude Sonnet 5]
+// AI Declaration: "export const metadata = {" was generated with the assistance of Claude-Web[Claude Sonnet 5]
 
 export const metadata = {
   title: 'Todo Lab',
