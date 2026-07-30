@@ -1,17 +1,26 @@
 // AI Declaration: Generated with the assistance of Claude-Web[Claude Sonnet 5]
 
 import { getTasks } from '@/actions/tasks';
-import TaskList from '@/components/TaskList';
-import AddTaskForm from '@/components/AddTaskForm';
+import TaskBoard from '@/components/TaskBoard';
+import { SortField } from '@/lib/types';
 
-export default async function HomePage() {
-  const tasks = await getTasks('due_date');
+const VALID_SORTS: SortField[] = ['due_date', 'status', 'topic'];
+
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sort?: string }>;
+}) {
+  const params = await searchParams;
+  const sortBy: SortField = VALID_SORTS.includes(params.sort as SortField)
+    ? (params.sort as SortField)
+    : 'due_date';
+
+  const tasks = await getTasks(sortBy);
 
   return (
-    <main>
-      <h1>Todo Lab</h1>
-      <AddTaskForm />
-      <TaskList tasks={tasks} />
+    <main className="max-w-5xl mx-auto p-6">
+      <TaskBoard initialTasks={tasks} sortBy={sortBy} />
     </main>
   );
 }
