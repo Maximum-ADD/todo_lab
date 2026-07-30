@@ -1,0 +1,973 @@
+
+AI policy documentation discrepancy
+Shared by Imperial Master
+This is a copy of a chat between Claude and Imperial Master. Content may include unverified or unsafe content that do not represent the views of Anthropic. Shared snapshot may contain attachments and data not displayed here.
+
+Files hidden in shared chats
+I've read through all three docs. Quick flag before anything else, since you clearly want to be pushed back on when something's off:
+
+Discrepancy in the handoff doc: PROJECT_CONTEXT.md states the policy requires "every code file generated with AI help gets a one-line comment at the top" (// AI Declaration: Generated with the assistance of <Tool>[<Model>]). I checked the actual ai_policy.pdf and this isn't in there. The policy only requires:
+
+A commit trailer (Assisted-by: <tool>[<model>]) — for commits with AI-generated code
+A README section (usage/non-usage per category: code gen, in-line editing, code review)
+A document footer (for AI-assisted writing/docs)
+There's no per-file comment requirement anywhere in the policy. So either a prior session over-interpreted the policy, or you added that convention yourself for extra transparency (which is fine!) — but it shouldn't be presented as something "the policy requires exactly." Worth deciding consciously rather than carrying it forward as fact.
+
+Everything else in the handoff doc checks out against the two PDFs — due date, the three doc types, the six-commit / three-test / throwaway-DB rubric requirements, and the overdue-must-be-derived / archive-not-delete constraints all match what's actually in lab_one.pdf and ai_policy.pdf.
+
+Alright lets go on with testing Vitest and teaching. that AI one liner is something I want so that it is clear what section of the code is AI generated. we can verify the repo later if an issue arrises or if you need the code in order to do something.. i know what is going on.
+
+Good — noting that as a deliberate personal choice, not a policy requirement, so it doesn't get miscited later.
+
+Let's build this properly. Before I write any actual test code, a few concepts, then I'll need to see your real files.
+
+Why Vitest (for your third-party-code.md entry)
+Native TypeScript support, no Babel/ts-jest config wrangling
+Fast — uses esbuild under the hood
+Jest-compatible API (describe, it, expect) — if you ever look at tutorials written for Jest, they'll mostly just work
+Plays fine with better-sqlite3 since it's just Node code, no special DOM/browser mocking needed for your data-layer tests
+One-liner for the doc: "Vitest — fast, TypeScript-native test runner, avoids extra config compared to Jest."
+
+The core idea: "real" tests vs smoke tests
+A smoke test just checks that something renders or doesn't crash. What the rubric wants is tests that exercise real behaviour — call an actual function, with actual inputs, and assert on the actual output or side effect. For your app that means things like:
+
+Call archiveTask(id) → then call getTasks() → assert the archived task is not in the active list but is in getArchivedTasks().
+Construct a task with a due date in the past and status Todo → run it through toTask() (or wherever overdue is derived) → assert overdue === true.
+Both of those touch real logic, not rendering.
+
+The throwaway database problem
+This is the part people usually get wrong first. If your tests hit data/app.db, two bad things happen: tests leave junk in your real data, and tests aren't deterministic (results depend on whatever's already in the DB). The rubric explicitly penalises this.
+
+The fix: make your DB connection accept a path, defaulting to data/app.db, but overridable in tests — e.g. an in-memory SQLite (:memory:) or a temp file created and deleted per test run. better-sqlite3 supports :memory: natively, which is usually the cleanest option since there's nothing to clean up on disk.
+
+Whether this is easy depends entirely on how db.ts currently opens its connection (hardcoded path vs. parameterised). I don't have that file yet.
+
+What I need from you to write real, correct tests
+Rather than write generic tests I'd end up guessing at, can you paste in (or I can look at them if you upload the files):
+
+src/lib/db.ts
+src/lib/schema.ts
+src/lib/types.ts (especially toTask())
+src/actions/tasks.ts
+src/lib/dueStatus.ts
+Once I see the actual function signatures I can walk you through writing the first test together line by line rather than dumping a finished file on you — since the point here is that you understand what each assertion is actually checking.
+
+Files hidden in shared chats
+Good, I have real code now. Two things stood out before I write anything — this is the "catch it before it becomes a graded bug" moment your rubric rewards, so let's deal with them first.
+
+Issue 1: db.ts can't be tested against a throwaway database yet
+ts
+const dbPath = path.join(dataDir, 'app.db');
+const db = new Database(dbPath);
+This is hardcoded. tasks.ts does import db from '@/lib/db', so every test that imports tasks.ts would open your real data/app.db — exactly what the rubric's testing criterion penalises ("depend on the developer's own database file"). We need to make the path overridable before a test can safely call createTask, archiveTask, etc.
+
+The clean fix: read the path from an environment variable, falling back to the real one.
+
+ts
+const dbPath = process.env.SQLITE_PATH ?? path.join(dataDir, 'app.db');
+Then a test sets process.env.SQLITE_PATH = ':memory:' (or a temp file) before the module is imported, and Vitest gives each test file a fresh module registry so this works cleanly. I'll show you exactly how in a second.
+
+Issue 2: two different definitions of "overdue" exist in your code right now
+types.ts → toTask(): isPast = due_date < Date.now() — compares against the exact current timestamp.
+dueStatus.ts → getDueFlag(): compares calendar days, and explicitly treats "due today" as 'today', not 'overdue'.
+Concretely: a task due today at any time is overdue: true on the Task object, but the badge the user actually sees says "Due today," never "Overdue." Looking at your components, task.overdue itself is never read anywhere in the UI — only getDueFlag() is — so it's currently harmless, but it's a live landmine: if you (or a future you, or a grader reading types.ts) trust the overdue field, it lies about "today" tasks. And when I write the overdue test the rubric requires, I need to know which definition is "the" rule — they'd give different answers for a same-day task.
+
+Q: How do you want to reconcile the two overdue definitions?
+A: Make toTask() use the same calendar-day logic as getDueFlag()
+
+Q: OK to make the db.ts env-var change described above?
+A: Show me the diff first, I'll apply it myself
+
+Here are both diffs. Since you asked to apply them yourself, I'm showing exactly what changes and why — no tool calls needed on your end besides pasting these in.
+
+src/lib/db.ts
+diff
+ const dataDir = path.join(process.cwd(), 'data');
+-if (!fs.existsSync(dataDir)) {
++if (!process.env.SQLITE_PATH && !fs.existsSync(dataDir)) {
+   fs.mkdirSync(dataDir, { recursive: true });
+ }
+
+-const dbPath = path.join(dataDir, 'app.db');
++const dbPath = process.env.SQLITE_PATH ?? path.join(dataDir, 'app.db');
+Two changes, both gated on the same env var:
+
+The mkdirSync guard now skips creating data/ when SQLITE_PATH is set — no reason to touch your real data folder during a test run.
+The actual path falls back to your existing behaviour when the var isn't set, so nothing changes for npm run dev. Only test runs (which will set SQLITE_PATH) take the new branch.
+src/lib/types.ts — toTask()
+diff
+ export function toTask(row: TaskRow): Task {
+-  const isPast = new Date(row.due_date).getTime() < Date.now();
+-  const overdue = isPast && row.status !== 'Complete' && row.archived_at === null;
++  const due = new Date(row.due_date);
++  const now = new Date();
++  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
++  const isPast = startOfDay(due).getTime() < startOfDay(now).getTime();
++  const overdue = isPast && row.status !== 'Complete' && row.archived_at === null;
+   return { ...row, overdue };
+ }
+Now toTask() truncates to calendar day before comparing, same as getDueFlag() — a task due today is never overdue, in either place. There's a small tradeoff worth knowing: the day-truncation logic (startOfDay) is now duplicated in two files instead of one. That's fine for a project this size, but if you ever change how "overdue" is calculated, you'd need to change it in both types.ts and dueStatus.ts. Worth a one-line comment in each pointing at the other, or a shared helper later if it bugs you — not required for the brief.
+
+Once you've applied both, tell me and I'll walk you through the Vitest config and the first test (probably archiveTask, since it's the simplest real-behaviour test to build the pattern from).
+
+hmm actually I want more accuracy on the overdue. if something is due midday it is due today but also will be overdue todya you know? ill change src/lib/db.ts
+
+Good catch on your end too, but worth flagging before we build it: your due dates don't currently have a time component.
+
+Look at TaskFormModal.tsx:
+
+tsx
+<input name="due_date" type="date" ... />
+An HTML type="date" input only ever produces YYYY-MM-DD — no hour, no minute. So due_date in the database is always something like "2026-08-04", never "2026-08-04T13:00". If I make toTask() compare exact timestamps again (reverting the calendar-day truncation we just added), here's what actually happens: JS parses "2026-08-04" as midnight of that day. So the moment it becomes August 4th — 12:01am — the task is already "in the past" by exact-timestamp comparison and gets flagged overdue, even though the person has the whole day left. That's the exact bug we just fixed, not the midday-accuracy you want.
+
+To get real "overdue as of midday" behaviour, the app needs to actually capture a time, which means three things change, not one:
+
+TaskFormModal.tsx: type="date" → type="datetime-local" (or a separate time field)
+schema.ts / types.ts: due_date becomes a full datetime string, and docs (database-design.md) need updating to match
+dueStatus.ts + toTask(): go back to exact-timestamp comparison (no startOfDay truncation) — which then correctly means "due today at 9am" is overdue by 10am, but "due today at 11pm" isn't overdue yet
+That's a bigger, legitimate feature change — not just a bugfix — and it's beyond what the brief asks for (it lists "Due Date," not "Due Date and Time").
+
+okay keep date only for now wew can add time efficiencies later as improvements when we are done with the testing.
+
+Good — noted as a deliberate scope decision, not an oversight. Worth a one-line mention in docs/database-design.md later ("due_date is date-only by design; time-of-day precision is a known future improvement") so a grader doesn't read it as an unnoticed gap. We can add that when we do docs.
+
+Let's get Vitest running. I'll go step by step rather than dump a finished setup — tell me when each step works before we move to the next.
+
+Step 1 — install
+bash
+npm install -D vitest
+That's it for now — no extra plugins needed, since we're testing server-side logic (Server Actions, DB functions), not rendering React components. If you later want to test components too, you'd add @testing-library/react and jsdom, but skip that for now — the rubric wants real behaviour tests, and your real behaviour lives in src/actions/tasks.ts and src/lib/, not in JSX.
+
+Step 2 — a minimal config
+Create vitest.config.ts at the project root:
+
+ts
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    environment: 'node',
+  },
+});
+environment: 'node' is the key line — it tells Vitest not to bother simulating a browser DOM, since better-sqlite3 and your Server Actions are plain Node code. Faster, and there's nothing to misconfigure.
+
+Step 3 — a script
+In package.json:
+
+json
+"scripts": {
+  "test": "vitest run"
+}
+vitest run (not just vitest) runs once and exits — the bare vitest command watches files and stays open, which isn't what you want for docs/running-it.md's "single documented command."
+
+Once you've got those three in place, run npm test. It should report 0 tests, 0 files (that's expected — we haven't written any yet) rather than erroring. Let me know what you actually see, and then we'll build the SQLITE_PATH test setup and write the first real test together.
+
+PS C:\Users\adria\MyGit\todo_lab> npm test
+> todo_lab@0.1.0 test
+> vitest run
+ RUN  v4.1.10 C:/Users/adria/MyGit/todo_lab
+No test files found, exiting with code 1
+include: **/*.{test,spec}.?(c|m)[jt]s?(x)
+exclude:  **/node_modules/**, **/.git/**
+PS C:\Users\adria\MyGit\todo_lab>
+
+That's expected and correct — Vitest found your config, understood the include/exclude patterns, and correctly reports zero matching files. It exits with code 1 on zero tests, which is intentional Vitest behaviour (so a CI pipeline can't silently pass with no tests) — not a bug in your setup. Once we have one real test file, this goes away.
+
+Now let's set up the throwaway-database pattern before writing that first test, since every test file needs it.
+
+The problem with a naive test
+If you just write:
+
+ts
+import { archiveTask } from '@/actions/tasks';
+...at the top of a test file, Node runs db.ts immediately (import side effects), which opens data/app.db — your real file — before your test gets a chance to set SQLITE_PATH. Import order matters here: the env var has to exist before db.ts is first evaluated.
+
+The fix: a setup file that runs first
+Create vitest.setup.ts at the project root:
+
+ts
+import fs from 'fs';
+import path from 'path';
+
+const testDbPath = path.join(process.cwd(), 'test.db');
+
+// Wipe any leftover file from a previous crashed run
+if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
+
+process.env.SQLITE_PATH = testDbPath;
+A couple of deliberate choices here, worth understanding rather than just pasting:
+
+A real temp file, not :memory:. better-sqlite3's :memory: mode works, but each new Database(':memory:') call gets its own isolated database — and because Next.js Server Actions can each pull in a fresh module instance in some setups, that risks two parts of your test accidentally talking to different in-memory databases with no error, just silently wrong results. A real file on disk is one database, guaranteed, and it's deleted automatically anyway (see below) — so you don't pay a real cost for the extra safety.
+Deleted before the run, not after. If a previous test run crashed mid-way, an old test.db could linger and leak state into the next run. Cleaning up before is more reliable than relying on an afterAll that might not fire.
+Now wire it into the config:
+
+diff
+ export default defineConfig({
+   test: {
+     environment: 'node',
++    setupFiles: ['./vitest.setup.ts'],
+   },
+ });
+setupFiles runs before any test file's imports are evaluated, which is exactly the ordering we need.
+
+One more thing before you run anything: check your .gitignore — does it already ignore data/ or *.db? If not, add test.db to it (and check whether data/app.db is already ignored, since that shouldn't be committed either). Let me know what's currently in there and whether you want me to give you the exact line, then we'll write the first test.
+
+lets start!
+
+Let's write the first one: archiving. It's the simplest to reason about, and it directly satisfies the rubric's "at least one test covering archiving or the overdue rule" requirement.
+
+Create src/actions/tasks.test.ts:
+
+ts
+// AI Declaration: Generated with the assistance of Claude-Web[Claude Sonnet 5]
+import { describe, it, expect, beforeEach } from 'vitest';
+import db from '@/lib/db';
+import { createTask, getTasks, getArchivedTasks, archiveTask } from './tasks';
+
+// Every test starts from a clean table — without this, tasks from one test
+// would leak into the next and make results depend on run order.
+beforeEach(() => {
+  db.exec('DELETE FROM tasks');
+});
+
+describe('archiveTask', () => {
+  it('removes the task from the active list and makes it viewable in archived', async () => {
+    await createTask({
+      title: 'Write lab report',
+      due_date: '2026-08-01',
+      topic: 'COMS3011A',
+    });
+
+    const activeBefore = await getTasks();
+    const task = activeBefore[0];
+
+    await archiveTask(task.id);
+
+    const activeAfter = await getTasks();
+    const archivedAfter = await getArchivedTasks();
+
+    expect(activeAfter.find((t) => t.id === task.id)).toBeUndefined();
+    expect(archivedAfter.find((t) => t.id === task.id)).toBeDefined();
+  });
+});
+Walk through why each part is there, since this is the pattern every other test will follow:
+
+beforeEach clearing the table. This is what makes the test deterministic — the rubric's word, not mine. Without it, running the suite twice in a row gives you two tasks instead of one, and activeBefore[0] might not be the task you think it is.
+We never hardcode an id. createTask() doesn't return the row it inserts (it only calls revalidatePath), so we fetch right after creating and take activeBefore[0] — safe here specifically because the table was just cleared, so it's the only row.
+The assertion checks both sides of the behaviour, not just one. It would be easy to only check "not in active list" — but the brief's requirement is specifically that archived tasks stay viewable, so the test has to prove getArchivedTasks() actually returns it, not just that it vanished.
+db.exec('DELETE FROM tasks') uses your real db import — and because vitest.setup.ts set SQLITE_PATH before this file's imports ran, that db is pointed at test.db, not your real data. This is the payoff of the setup work we did.
+Try running npm test now. Two things to check when it finishes: does it say 1 passed, and — separately — go look at data/app.db afterward and confirm it wasn't touched (e.g. check its modified timestamp, or just that your real tasks are still there if you have any). That second check matters more than it sounds like — it's proof the isolation actually works, not just that the test passed by coincidence.
+
+PS C:\Users\adria\MyGit\todo_lab> npm test
+> todo_lab@0.1.0 test
+> vitest run
+ RUN  v4.1.10 C:/Users/adria/MyGit/todo_lab
+ ❯ src/actions/tasks.test.ts (0 test)
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/actions/tasks.test.ts [ src/actions/tasks.test.ts ]
+Error: Cannot find package '@/lib/db' imported from C:/Users/adria/MyGit/todo_lab/src/actions/tasks.test.ts
+ ❯ src/actions/tasks.test.ts:3:1
+      1| // AI Declaration: Generated with the assistance of Claude-Web[Claude Sonnet 5]
+      2| import { describe, it, expect, beforeEach } from 'vitest';
+      3| import db from '@/lib/db';
+       | ^
+      4| import { createTask, getTasks, getArchivedTasks, archiveTask } from './tasks';
+      5|
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  19:26:02
+   Duration  479ms (transform 56ms, setup 55ms, import 0ms, tests 0ms, environment 0ms)
+
+Show more
+This is a classic gotcha, not a mistake in the test itself — worth understanding since you'll hit variants of it again.
+
+Why it happens: @/* isn't a real Node.js feature — it's a path alias that only means something to whatever tool is told to resolve it. Next.js's own bundler reads tsconfig.json's paths config and rewrites @/lib/db to the real file automatically. Vitest runs on Vite, a completely separate bundler, and Vite doesn't read tsconfig.json by default — so @/lib/db means nothing to it, hence "cannot find package."
+
+Two ways to fix it. I'd go with the plugin — it's one line and stays correct automatically if your folder structure ever changes:
+
+Option A — vite-tsconfig-paths plugin (recommended):
+
+bash
+npm install -D vite-tsconfig-paths
+diff
+ import { defineConfig } from 'vitest/config';
++import tsconfigPaths from 'vite-tsconfig-paths';
+
+ export default defineConfig({
++  plugins: [tsconfigPaths()],
+   test: {
+     environment: 'node',
+     setupFiles: ['./vitest.setup.ts'],
+   },
+ });
+This reads your existing tsconfig.json paths entry and makes Vite (and therefore Vitest) understand @/* the same way Next.js does — no alias logic duplicated, one source of truth.
+
+Option B — hardcode the alias manually in the config, no new dependency, but you'd be maintaining the same mapping in two places (tsconfig.json and vitest.config.ts) and it'll silently drift if one changes and not the other. I wouldn't recommend it here, but flagging it since you might prefer fewer dependencies — your call.
+
+If you go with A, add vite-tsconfig-paths to docs/third-party-code.md too — it's a real dependency of the project now, and the rubric explicitly wants every installed package justified.
+
+Run npm test again once it's in and tell me what you get.
+
+I went for option A PS C:\Users\adria\MyGit\todo_lab> npm test
+> todo_lab@0.1.0 test
+> vitest run
+The plugin "vite-tsconfig-paths" is detected. Vite now supports tsconfig paths resolution natively via the resolve.tsconfigPaths option. You can remove the plugin and set resolve.tsconfigPaths: true in your Vite config instead.
+ RUN  v4.1.10 C:/Users/adria/MyGit/todo_lab
+ ❯ src/actions/tasks.test.ts (1 test | 1 failed) 10ms
+   ❯ archiveTask (1)
+     × removes the task from the active list and makes it viewable in archived 7ms
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/actions/tasks.test.ts > archiveTask > removes the task from the active list and makes it viewable in archived
+Error: Invariant: static generation store missing in revalidatePath /
+ ❯ revalidate node_modules/next/src/server/web/spec-extension/revalidate.ts:128:10
+ ❯ revalidate node_modules/next/src/server/web/spec-extension/revalidate.ts:118:9
+ ❯ createTask src/actions/tasks.ts:55:3
+     53|   });
+     54|
+     55|   revalidatePath('/');
+       |   ^
+     56| }
+     57|
+ ❯ src/actions/tasks.test.ts:14:11
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  19:30:34
+   Duration  919ms (transform 150ms, setup 96ms, import 410ms, tests 10ms, environment 0ms)
+
+Show more
+This one's not about your code being wrong — it's Next.js's Server Action machinery bumping into the fact that Vitest isn't Next.js.
+
+Why it happens: revalidatePath() is Next.js's cache-invalidation call. Normally when a Server Action runs, it's inside an active Next.js request — there's a "static generation store" tracking that request, and revalidatePath needs that store to know what to invalidate. When Vitest calls createTask() directly, there's no Next.js server running at all — no request, no store — so revalidatePath throws immediately, before your actual insert logic even finishes.
+
+Your test isn't testing caching behaviour — it's testing "did the row get archived correctly." So the right fix is to replace revalidatePath with a no-op during tests, not to work around the real one.
+
+Add this to vitest.setup.ts:
+
+ts
+import { vi } from 'vitest';
+
+vi.mock('next/cache', () => ({
+  revalidatePath: vi.fn(),
+}));
+diff
+ import fs from 'fs';
+ import path from 'path';
++import { vi } from 'vitest';
++
++vi.mock('next/cache', () => ({
++  revalidatePath: vi.fn(),
++}));
+
+ const testDbPath = path.join(process.cwd(), 'test.db');
+Since this is in setupFiles, it applies before every test file's imports run, so any Server Action calling revalidatePath — createTask, updateTask, archiveTask — gets the mock automatically. vi.fn() is a fake function that does nothing but silently records that it was called, in case you ever want to assert "yes, revalidation was triggered" — you don't need that for this test, but it's there if a later one wants it.
+
+One small FYI, not urgent: the "vite-tsconfig-paths detected... supports natively now" message is Vite telling you the plugin's functionality got absorbed into core. Nothing's broken — the plugin still works — but if you want to simplify later you could delete it and set resolve.tsconfigPaths: true directly. I'd leave it alone until after testing is done; no reason to touch two things at once.
+
+Run it again — should be green this time.
+
+wait okay okay so what testing software works with Next.js?
+
+Fair question given how much scaffolding we just needed. Quick landscape, so you're choosing with full information rather than just trusting me:
+
+For unit/integration tests (testing functions directly — what we're doing):
+
+Vitest (what we're using) — what Next.js's own docs recommend as the default pick today.
+Jest — the older standard, still fully supported by Next.js (next/jest gives you a preset that handles a lot of the config automatically). Slower than Vitest, more mature ecosystem, more Stack Overflow answers if you get stuck.
+For end-to-end tests (driving a real browser against a real running app):
+
+Playwright or Cypress — these click buttons and read the actual rendered page against a live npm run dev server. Worth knowing they exist, but not what your rubric wants — the requirement is tests "against a throwaway database," which is unit/integration territory, not E2E. E2E is much heavier to set up and slower to run, for a payoff (visual/UI correctness) you're not being marked on.
+The important thing to understand: the friction we just hit isn't a Vitest problem. revalidatePath needing a Next.js request context to function is a property of Server Actions themselves — Jest would hit the exact same "Invariant: static generation store missing" error and need the exact same mock. Same with path aliases: Jest needs its own moduleNameMapper config to understand @/*, just phrased differently than Vitest's plugin. Whichever tool you pick, calling a Server Action directly from a test file — outside of an actual Next.js server — always means mocking next/cache. There's no way around that; it's the tradeoff for the test running in milliseconds instead of spinning up a whole app.
+
+So: Vitest is a reasonable, defensible choice, and what we've built so far (the SQLITE_PATH env var + the next/cache mock) is the correct shape of solution regardless of runner. Want to stick with Vitest and get this test green, or would you rather switch to Jest? I'd lean stick — you're one small edit away from a passing test — but it's your call.
+
+okay cool it passed:
+PS C:\Users\adria\MyGit\todo_lab> npm test
+> todo_lab@0.1.0 test
+> vitest run
+The plugin "vite-tsconfig-paths" is detected. Vite now supports tsconfig paths resolution natively via the resolve.tsconfigPaths option. You can remove the plugin and set resolve.tsconfigPaths: true in your Vite config instead.
+ RUN  v4.1.10 C:/Users/adria/MyGit/todo_lab
+ ✓ src/actions/tasks.test.ts (1 test) 7ms
+   ✓ archiveTask (1)
+     ✓ removes the task from the active list and makes it viewable in archived 4ms
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  19:38:05
+   Duration  612ms (transform 174ms, setup 78ms, import 206ms, tests 7ms, environment 0ms)
+
+This test case says that archiving is valid and works well.
+
+Show more
+One passed test, but don't move on yet — go check that data/app.db file's modified timestamp (or just open it and confirm your real tasks, if any, are still there). That's the actual proof the isolation is working — a passing test that secretly touched your real data would still print green.
+
+Once you've confirmed that, let's write test #2: the overdue rule — this is the other thing the rubric explicitly names ("at least one test covering archiving or the overdue rule," and we've got archiving, so this one's not strictly required, but it's good coverage and catches regressions on the bug we just fixed together).
+
+Given we reconciled toTask() and getDueFlag() to use the same calendar-day logic, I'd test getDueFlag() directly — it's a pure function (no database, no async, just inputs → output), which makes it the simplest possible test to write and a good second pattern to learn, distinct from the DB-touching test we just did.
+
+Quick design question before I write it: getDueFlag() depends on "today" via new Date() internally, which means the test result technically depends on what day you run it. A robust test shouldn't need updating every time you run it months from now — so the standard approach is to compute the due date relative to today inside the test (e.g. "yesterday" = today minus one day) rather than hardcoding a date like '2026-08-01'.
+
+well data/app.db can't be accessed very well becuase it has silly binary data or something and doesn't show any relevant data anyway. I just reopened localhost and yep there is no new task there. let me remove the protection we put in place for fun to see if there will be a new task archived. i commented this out and ran the test :
+
+beforeEach(() => {
+  db.exec('DELETE FROM tasks');
+});
+but no new archived task was there. unsure why.
+
+for the getDue flag I agree with making it relative to the date I was thinking of that before actually. should we test toTask as well. I am actually curious why we write the same functionality in different places.
+
+Show more
+Good experiment, but it didn't test what you think it tested — and that's actually worth understanding properly.
+
+Why nothing changed: SQLITE_PATH doesn't get toggled on and off — it's always set to test.db while running through Vitest (your vitest.setup.ts sets it unconditionally, every test run). So data/app.db was never in the blast radius to begin with, regardless of whether beforeEach runs. What commenting out beforeEach actually does is let test.db accumulate rows across test runs — first run leaves 1 "Write lab report" task, second run inserts another one, so test.db now has 2. Your check ("open localhost, no new task") was checking the wrong database — localhost reads data/app.db, and the test always wrote to test.db. So the experiment proved nothing either way about isolation; it's already guaranteed structurally by the env var swap, independent of beforeEach.
+
+What beforeEach actually protects against is subtler: with 2 leftover "Write lab report" rows in test.db, activeBefore[0] might not reliably be the task you just created — getTasks() sorts by due_date ASC, not insertion order, so a stale row could sort first and the test would archive the wrong task, possibly still passing by accident. Please re-enable beforeEach — it's not decorative, it's what keeps the test deterministic run after run.
+
+getDueFlag test, relative to today
+ts
+// AI Declaration: Generated with the assistance of Claude-Web[Claude Sonnet 5]
+import { describe, it, expect } from 'vitest';
+import { getDueFlag } from './dueStatus';
+
+function daysFromToday(offset: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().split('T')[0]; // "YYYY-MM-DD"
+}
+
+describe('getDueFlag', () => {
+  it('flags a task due yesterday as overdue', () => {
+    expect(getDueFlag(daysFromToday(-1), 'Todo', null)).toBe('overdue');
+  });
+
+  it('does not flag a completed task as overdue, even if the date has passed', () => {
+    expect(getDueFlag(daysFromToday(-1), 'Complete', null)).toBeNull();
+  });
+
+  it('does not flag an archived task, even if overdue', () => {
+    expect(getDueFlag(daysFromToday(-1), 'Todo', '2026-07-01 12:00:00')).toBeNull();
+  });
+});
+Three assertions, one function — each one checks a distinct rule from the code (the day comparison, the status === 'Complete' short-circuit, the archived_at !== null short-circuit), rather than one test that only proves the happy path.
+
+On your actual question — should we test toTask() too, and why does the logic live in two places — that's a real design smell you've spotted, not just a testing detail: right now there's one rule ("overdue") implemented twice, and if a third person edits dueStatus.ts without knowing types.ts has a copy, they silently drift apart again — the exact bug we just fixed. The cleaner fix is to extract the shared day-comparison into one function both files call, so there's only one implementation to test.
+
+I see I figured it out now yeah I see it I tested it i see where the data is going cool.
+
+lets make one helper function for the overdue logic
+
+Good instinct — one function, one thing to test, no drift risk. Here's the extraction.
+
+New file: src/lib/date.ts
+ts
+// AI Declaration: Generated with the assistance of Claude-Web[Claude Sonnet 5]
+
+function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+/**
+ * Whole calendar days between a due date and today.
+ * Negative = due date already passed. 0 = due today. Positive = still upcoming.
+ * This is the single source of truth for "overdue" across the app —
+ * both dueStatus.ts and types.ts call this rather than each doing their own math.
+ */
+export function daysUntilDue(dueDateStr: string): number {
+  const due = startOfDay(new Date(dueDateStr));
+  const today = startOfDay(new Date());
+  return Math.round((due.getTime() - today.getTime()) / 86400000);
+}
+This lives on its own, with no import from types.ts — deliberately, to avoid a circular import (dueStatus.ts already imports TaskStatus from types.ts; if types.ts imported back from dueStatus.ts, that's a cycle. Routing both through a neutral third file avoids it entirely).
+
+src/lib/dueStatus.ts
+diff
+-import { TaskStatus } from './types';
++import { TaskStatus } from './types';
++import { daysUntilDue } from './date';
+
+ export function getDueFlag(
+   due_date: string,
+   status: TaskStatus,
+   archived_at: string | null
+ ): DueFlag {
+   if (archived_at !== null || status === 'Complete') return null;
+
+-  const due = new Date(due_date);
+-  const now = new Date();
+-  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+-  const dueDay = startOfDay(due);
+-  const today = startOfDay(now);
+-  const diffDays = Math.round((dueDay.getTime() - today.getTime()) / 86400000);
++  const diffDays = daysUntilDue(due_date);
+
+   if (diffDays < 0) return 'overdue';
+src/lib/types.ts
+diff
++import { daysUntilDue } from './date';
++
+ export function toTask(row: TaskRow): Task {
+-  const due = new Date(row.due_date);
+-  const now = new Date();
+-  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+-  const isPast = startOfDay(due).getTime() < startOfDay(now).getTime();
+-  const overdue = isPast && row.status !== 'Complete' && row.archived_at === null;
++  const overdue = daysUntilDue(row.due_date) < 0 && row.status !== 'Complete' && row.archived_at === null;
+   return { ...row, overdue };
+ }
+Both files now express "overdue" the same way, through one function. The getDueFlag test we already wrote doesn't need any changes — it tests behaviour, not implementation, so it should still pass unchanged, and passing again after this refactor is itself a small proof the refactor didn't break anything.
+
+Apply those three, run npm test, and confirm the existing tests are still green — then we'll add one direct test for daysUntilDue itself (the day-boundary math, e.g. "due today" → 0, not -1 or 1) and a short toTask() test, which gets you to a solid 3+ with real coverage of both the archive rule and the overdue rule.
+
+just a quick check is it convention for all tests to be in one file?
+
+Not a strict rule, but the common convention is one test file per source file, colocated or mirrored — e.g. dueStatus.ts → dueStatus.test.ts, date.ts → date.test.ts, tasks.ts → tasks.test.ts (which you already have). Two flavours of where they live:
+
+Colocated — test file sits right next to the source file, same folder. What we're doing (src/actions/tasks.test.ts next to src/actions/tasks.ts). Easiest to find, most common for smaller projects.
+Mirrored __tests__ or tests/ folder — a separate directory tree that mirrors src/. More common in larger codebases where you want source and tests visually separated.
+For a project this size, one file per module (colocated) is the right call — it's what Vitest's docs assume by default, and it keeps each test file focused on one thing, which makes it obvious at a glance what's covered and what isn't (useful for you right now, and for whoever's marking against that rubric's "tests exercise real behaviour" criterion — one glance at the file list shows archiving, overdue, etc. each has a home).
+
+One giant all.test.ts isn't wrong, exactly, but it gets unwieldy fast and makes git diff noisier when you touch one feature's tests.
+
+So: keep tasks.test.ts, add dueStatus.test.ts and date.test.ts alongside their source files. Want me to lay out those two now?
+
+yeah so the test file we just made was dueStatus.test.ts? doesn't that also test date.ts indirectly?
+
+Good catch — yes, exactly right. Every one of the getDueFlag tests already calls daysUntilDue under the hood, so in one sense it's already being exercised, and a separate date.test.ts would technically be testing something you've already got coverage of.
+
+But there's a real distinction between "exercised" and "directly verified," and it matters here specifically:
+
+getDueFlag's tests check the combination of rules — day math plus the "Complete" short-circuit plus the "archived" short-circuit. If one of those tests fails, you don't immediately know which piece broke — the day math, or one of the short-circuits.
+A direct daysUntilDue test isolates just the boundary math, with no other logic in the way — e.g. does a task due today return exactly 0, not 1 or -1? Does a task due exactly 7 days out land as 7? Those are easy to get subtly wrong (off-by-one on the boundary is the classic bug), and a direct test pinpoints that specific line if it regresses, rather than you having to go re-derive it from a getDueFlag failure.
+Think of it as: getDueFlag tests prove the feature behaves correctly; a daysUntilDue test proves the building block is correct on its own, independent of anything built on top of it. If you ever add a second thing that uses daysUntilDue later (say, sorting tasks by urgency), you'd want that foundation already independently trustworthy rather than only proven-by-implication through one caller.
+
+That said — for a project this size, hitting 3+ tests with real coverage is the actual bar, not textbook completeness. If you'd rather spend the time budget elsewhere (e.g. a createTask/updateTask test, or writing docs), skipping a dedicated date.test.ts and relying on the indirect coverage is a defensible call, not a wrong one.
+
+lets make a date.test.ts
+
+ts
+// AI Declaration: Generated with the assistance of Claude-Web[Claude Sonnet 5]
+import { describe, it, expect } from 'vitest';
+import { daysUntilDue } from './date';
+
+function daysFromToday(offset: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().split('T')[0]; // "YYYY-MM-DD"
+}
+
+describe('daysUntilDue', () => {
+  it('returns 0 for a task due today', () => {
+    expect(daysUntilDue(daysFromToday(0))).toBe(0);
+  });
+
+  it('returns a negative number for a task due yesterday', () => {
+    expect(daysUntilDue(daysFromToday(-1))).toBe(-1);
+  });
+
+  it('returns a positive number for a task due tomorrow', () => {
+    expect(daysUntilDue(daysFromToday(1))).toBe(1);
+  });
+
+  it('counts by whole calendar days, not by 24-hour periods', () => {
+    // A task due 7 days out should read as exactly 7, regardless of what
+    // time of day "now" happens to be when the test runs.
+    expect(daysUntilDue(daysFromToday(7))).toBe(7);
+  });
+});
+Same daysFromToday helper as the dueStatus test — worth noticing that's now duplicated across two test files. That's a smaller, more acceptable kind of duplication than the production-code duplication we just fixed: test helpers repeating a small utility is normal and low-risk (a test file being self-contained and readable on its own is usually worth more than DRY-ing out four lines), unlike the earlier case where two behavioural rules could silently drift apart. If it ever grows past this, a test/helpers.ts would be the move — not needed yet.
+
+The fourth test is the one actually worth pausing on: it doesn't test a new case, it documents why the function truncates to startOfDay instead of doing raw millisecond division. Without that truncation, "due in 7 days" computed at 11pm vs 6am would land on different sides of a day boundary purely from time-of-day — exactly the class of bug you were originally worried about with the midday overdue question a few turns back. This test is what proves that concern doesn't apply here anymore.
+
+Run npm test — you should see three files, all green. That gives you archiving, the overdue rule (twice over — feature-level and unit-level), which clears the rubric's testing bar with real margin. Next up whenever you're ready: createTask/updateTask, or we call testing done and move to docs.
+
+i wrote my own test cases! using the same helper function you gave and looking at the other test cases so i cant take the credit.
+
+import { describe, it, expect } from 'vitest';
+import { daysUntilDue } from './date';
+
+function daysFromToday(offset: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().split('T')[0]; // "YYYY-MM-DD"
+}
+
+describe('daysUntilDue', () => {
+    it('returns 0 when given same day as due date '), () => {
+        expect(daysUntilDue(daysFromToday(0))).toBe('0')
+    }    
+    it('returns -1 when given day after due date '), () => {
+        expect(daysUntilDue(daysFromToday(-1))).toBe('-1')
+    }    
+    it('returns 7 when given week before due date '), () => {
+        expect(daysUntilDue(daysFromToday(7))).toBe('7')
+    }
+    
+})
+obviously it could be better implementing what you said now. looks like we kinda did the same thing somehow. did the third test case even matte rlol?
+lets move on
+
+Show more
+Good excavation of the pattern by reusing the helper — but two real bugs, and worth flagging before moving on since they'd both stop this from actually running.
+
+Bug 1 — syntax error. Look at the parens:
+
+ts
+it('returns 0 when given same day as due date '), () => {
+There's a ) closing it(...) right after the string, before the arrow function even starts. it() needs exactly two arguments — the description string, then a comma, then the function — all inside one set of parens:
+
+ts
+it('returns 0 when given same day as due date', () => {
+As written, this won't even parse — Vitest would throw a syntax error before running anything, on all three tests.
+
+Bug 2 — comparing a number to a string. daysUntilDue returns a number (it's built on Math.round(...), no string conversion anywhere). But your assertions check .toBe('0'), .toBe('-1'), .toBe('7') — with quotes. toBe uses strict equality, and 0 === '0' is false in JS. Even with the syntax fixed, all three would fail. Drop the quotes: .toBe(0), .toBe(-1), .toBe(7).
+
+Fixed version:
+
+ts
+import { describe, it, expect } from 'vitest';
+import { daysUntilDue } from './date';
+
+function daysFromToday(offset: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().split('T')[0];
+}
+
+describe('daysUntilDue', () => {
+  it('returns 0 when given same day as due date', () => {
+    expect(daysUntilDue(daysFromToday(0))).toBe(0);
+  });
+  it('returns -1 when given day after due date', () => {
+    expect(daysUntilDue(daysFromToday(-1))).toBe(-1);
+  });
+  it('returns 7 when given a week before due date', () => {
+    expect(daysUntilDue(daysFromToday(7))).toBe(7);
+  });
+});
+On your last question — genuinely good catch, and I should be straight with you: no, the 4th test I wrote didn't earn its keep. I framed it as proving something the +7 case doesn't already prove, but it doesn't hold up — any test using daysFromToday already runs through startOfDay truncation regardless of what time of day the suite executes, so .toBe(7) alone already demonstrates the boundary is calendar-day-based, not time-based. I was padding a plausible-sounding justification onto a test that was really just restating the third one with an extra comment. Your 3 cover it fine — no need to add a 4th.
+
+Three files, real coverage, moving on when you're ready.
+
+thanks for the heads up it was fun writing my own test. I kinda hate that AI is so prevelant and nessesary for developers these days. it make code look so unfamiliar and makes it harder to learn new tech but if you don't use it or if you use it while writing your own code to learn you are just left behind a lot quicker. there are undoubtably better ways to use llms but boy am i scared i will lose integrity and robust understanding of what i am doing.
+
+anywho! the test cases work now. lets move on! maybe it would be cool if i wrote my own test cases? or would it be inefficient? maybe its better to let you write them now that i know how they work so i can trim and edit them with understanding. okay cool! lets move onto types.ts and schema.ts
+
+That instinct — being wary of losing your own understanding even while using the tool — is honestly the healthiest way to approach this, and rarer than it should be. For what it's worth: the exercise that just happened (you wrote it wrong twice, in ways that taught you something real — argument order in it(), toBe being strict-equality-typed) is a genuinely different activity from me handing you a working file. The bugs were the valuable part, not the working code. That's not consolation-prize framing — debugging your own syntax mistake against a tool you understand line-by-line is closer to how you'd actually learn Vitest if no AI existed at all, just faster and less lonely.
+
+On your question — I don't think it's inefficient at all, and I'd actually push back gently on "maybe it's better to let you write them now that I know how they work." That's backwards from what builds understanding fastest: you writing a first attempt, me reviewing it (like just now), is worth more per minute than me writing it clean the first time. The inefficiency, if any, is trivial — a few extra minutes — against the alternative of code you can recite but not really own. Given what you said about integrity, I'd say: keep writing first drafts yourself where you can, especially for anything conceptually new, and lean on me more for the boilerplate-y stuff (config files, vitest.config.ts) where there's less to learn and more to just get working.
+
+Next: types.ts and schema.ts
+Two different kinds of test here, worth distinguishing before you write either:
+
+toTask() — pure function, same shape as daysUntilDue. Given a raw row, does it correctly attach overdue: true/false? You could draft this one yourself — it's a straightforward extension of the pattern from date.test.ts.
+schema.ts — different animal. There's no exported function to call; what you're actually testing is that the database itself enforces the rule — specifically, that the CHECK (status IN (...)) constraint actually rejects a bad insert. This is closer to your tasks.test.ts (touches the real db connection) than to a pure-function test.
+Want to try drafting the toTask() one yourself first (I'll review, same as last time), and I'll walk you through the schema constraint test since that pattern's new — testing that an invalid insert throws, rather than testing a return value?
+
+dawg shut up with your glazing antics. I am lonely with you around its like playing with a doll that can speak.
+
+yo this is tedius af please finish it for me. I don't even know how to use ts properly so its taking forever. it feels like boilerplate. for efficiency purposes we need to move on. I'll mark something i don't understand.
+
+import { describe, it, expect } from 'vitest';
+import { toTask, TaskRow } from './types';
+import { daysUntilDue } from './date';
+// daysUntilDue(row.due_date) < 0 && row.status !== 'Complete' && row.archived_at === null;
+let complete_row: TaskRow = {} as TaskRow;
+complete_row.status = 'Complete'
+let before_due_row: TaskRow = {} as TaskRow;
+let yesterday: Date = new Date();
+yesterday.setDate(yesterday.getDate() - 1);
+let early = yesterday.toISOString().split('T')[0];
+before_due_row.due_date = early;
+let archived_row: TaskRow = {} as TaskRow;
+archived_row.archived_at = ; 
+describe('toTask', () => {
+    
+    it('TEST: if in completed, overdue is false', () => {
+        expect(toTask(complete_row)).toBe(false)
+    })
+    it('TEST: if due date has not passed yet, overdue is false', () => {
+        expect(toTask(before_due_row)).toBe(false)
+    })
+    it('TEST: if in archived, overdue is false', () => {
+        expect(toTask(before_due_row)).toBe(false)
+    })
+})
+Show more
+
+Ran a command
+Ran a command
+Fair, here it is working:
+
+ts
+// AI Declaration: Generated with the assistance of Claude-Web[Claude Sonnet 5]
+import { describe, it, expect } from 'vitest';
+import { toTask, TaskRow } from './types';
+
+function baseRow(overrides: Partial<TaskRow> = {}): TaskRow {
+  return {
+    id: 1,
+    title: 'Test task',
+    description: null,
+    due_date: '2020-01-01',
+    topic: 'Test',
+    status: 'Todo',
+    archived_at: null,
+    created_at: '2020-01-01',
+    updated_at: '2020-01-01',
+    ...overrides,
+  };
+}
+
+function daysFromToday(offset: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().split('T')[0];
+}
+
+describe('toTask', () => {
+  it('marks a completed task as not overdue, even if the due date has passed', () => {
+    const row = baseRow({ status: 'Complete', due_date: daysFromToday(-5) });
+    expect(toTask(row).overdue).toBe(false);
+  });
+
+  it('marks a task due in the future as not overdue', () => {
+    const row = baseRow({ due_date: daysFromToday(5) });
+    expect(toTask(row).overdue).toBe(false);
+  });
+
+  it('marks an archived task as not overdue, even if the due date has passed', () => {
+    const row = baseRow({ archived_at: '2020-01-02 00:00:00', due_date: daysFromToday(-5) });
+    expect(toTask(row).overdue).toBe(false);
+  });
+
+  it('marks an active, incomplete task with a past due date as overdue', () => {
+    const row = baseRow({ due_date: daysFromToday(-1) });
+    expect(toTask(row).overdue).toBe(true);
+  });
+});
+What was actually broken, briefly: {} as TaskRow gives you an object missing every field, so due_date was undefined and new Date(undefined) inside daysUntilDue blows up. toTask() returns a Task object, not a boolean — need .overdue. And archived_row.archived_at = ; was an incomplete statement, wouldn't compile at all.
+
+Now the schema constraint test, since I said I'd walk you through that pattern regardless:
+
+ts
+// AI Declaration: Generated with the assistance of Claude-Web[Claude Sonnet 5]
+import { describe, it, expect } from 'vitest';
+import db from '@/lib/db';
+
+describe('tasks schema', () => {
+  it('rejects an insert with an invalid status value', () => {
+    expect(() => {
+      db.prepare(
+        `INSERT INTO tasks (title, due_date, topic, status) VALUES (?, ?, ?, ?)`
+      ).run('bad task', '2026-01-01', 'Test', 'Cancelled');
+    }).toThrow();
+  });
+});
+'Cancelled' isn't in your CHECK (status IN ('Todo', 'In-Progress', 'Complete')) constraint, so SQLite itself throws — expect(() => {...}).toThrow() is the pattern for "this should error," wrapping the call in a function so Vitest can catch the throw instead of the throw crashing the test file.
+
+That's 5 test files, comfortably past the rubric's 3+ minimum with real archive and overdue coverage. Run npm test, confirm all green, and we can move to docs.
+
+ohhh for the schema.ts I see a new function db.prepare and run(...).
+I'm guessing prepare presents a typical sql query for db and run provides specific values that query might take on?
+actually I want to do the database next. but i will do so with a differnt AI. of course now I can write up the database doc more easily with all the functions setup and tests done. unless you think otherwise.  the third party code and running it md and if.
+
+before I go I wonder whether that is seriously all the backend there is. this functionality came with the UI code and I guess that is all it needed. also is my db already setup somehow?
+
+prepare/run — yes, exactly right. db.prepare(sql) compiles the SQL once (with ? placeholders standing in for values) and returns a reusable statement object; .run(values) executes it with the actual values slotted in. Two reasons it's split like that rather than one call: performance (SQLite can reuse the compiled query instead of re-parsing SQL text every time), and safety — plugging values in via placeholders instead of string-concatenating them into the SQL avoids SQL injection. You'll also see @title-style named placeholders elsewhere in tasks.ts (e.g. createTask) — same mechanism, just matched by object key instead of position.
+
+Docs split — third-party-code.md and running-it.md don't really benefit from a fresh AI; they're just accurate records of decisions already made (what's installed, exact commands), and I have the full trail of what we actually did. I'd knock those two out now while it's fresh, rather than re-explaining the whole session to a new tool. database-design.md is more of a judgment call — no strong reason either way, switching is fine if you specifically want a different perspective on it, but it's not required by anything about the task itself.
+
+Is this seriously all the backend? — yes, genuinely. This is the actual shape of a Next.js Server Actions app: there's no separate Express server, no /api routes, no controllers. src/actions/tasks.ts's exported functions are the backend — React components call them directly (await createTask(...)), and Next.js handles the client↔server boundary invisibly under the hood. So the backend is exactly: db.ts (connection), schema.ts (table), tasks.ts (the four operations), plus types.ts/dueStatus.ts/date.ts for the derived logic. That's the whole thing — not a stub, not missing pieces. Good to know cold for database-design.md, since a reader might expect a routes folder that doesn't exist.
+
+Is your DB already set up? — yes, automatically, and it's worth understanding why: db.ts calls initSchema(db) at module load time (not inside any function — it just runs when the file is imported), and initSchema uses CREATE TABLE IF NOT EXISTS. The first time anything imports db — which happens the moment page.tsx calls getTasks() on your very first npm run dev — the table gets created if it's missing, and does nothing if it's already there. No separate migration step, no npm run setup. That self-initializing behavior is itself worth a line in database-design.md, since a reader running the app fresh needs to know they don't have to do anything extra.
+
+Files hidden in shared chats
+yeah I recall that db stuff actually. but i designed nothing myself. how the hell did i miss that my other claude one shot everything lol!!!!!!! I must be tired and not even understand the code at all properly. maybe i just didn't look through the code properly we even made a test case for it and my mind just rendered it as peripheral vision. hard to imagine what mindset or approach i am missing  but perhaps a md file stating whatever the claude bot did when they make "scaffolding" this project was so small it could have just one shotted everything when all I wanted was UI. 
+
+okay whatever lets get those 2 docs done now here is what they are right now:
+
+On the "did I design anything" worry — quick honest take, no sugarcoating: you're conflating two different things. The scaffolding (Next.js setup, the kanban UI, drag-and-drop, the initial schema) — yeah, that was generated wholesale by the other session, and it's fine that it was, the brief doesn't require you to have handwritten the UI. But the design decisions we made together — reconciling the two conflicting overdue definitions, deciding to keep due-date-only instead of adding time precision, extracting daysUntilDue instead of leaving the duplication, catching that the schema test needed a different pattern than the pure-function tests — those were real judgment calls you made, not scaffolding. The AI usage rubric literally rewards "the author identifying an unsuitable or incorrect output and redirecting it" — you have several of those on record in this conversation, which is more than a lot of submissions will show. Don't let "I didn't write the UI from scratch" erase that.
+
+For running-it.md I need two real values from your machine — I can't guess these:
+
+bash
+node -v
+npm -v
+Paste me the output and I'll drop them in. Here's everything else filled in:
+
+third-party-code.md
+md
+# Third-Party Code
+
+Every dependency you deliberately installed, with one honest sentence on why. Keep this
+list in sync with `package.json` — don't list something you removed, don't omit
+something you added.
+
+| Package | Why it was chosen |
+|---|---|
+| `next` | Framework required by the brief; App Router gives file-based routing and Server Actions without a separate API layer. |
+| `better-sqlite3` | Synchronous SQLite driver — no callback/Promise overhead for a local single-user app, and the most widely used SQLite binding for Node. |
+| `@types/better-sqlite3` | Type definitions so TypeScript can check calls into the database layer at compile time. |
+| `@dnd-kit/core` | Drag-and-drop between kanban columns, without needing to hand-roll pointer/drop-zone logic. |
+| `lucide-react` | Icon set used across the modals and cards (close, edit, archive, calendar, etc.). |
+| `vitest` | Fast, TypeScript-native test runner — avoids extra Babel/ts-jest config compared to Jest, and is what Next.js's own docs currently recommend as the default. |
+| `vite-tsconfig-paths` | Makes Vitest resolve the `@/*` import alias the same way Next.js does, since Vitest runs on Vite, a separate bundler that doesn't read `tsconfig.json` by default. |
+
+This Markdown template was generated with Claude-Web(Sonnet-5)
+(Double check @dnd-kit/core and lucide-react are actually in your package.json — I'm inferring them from the imports in TaskBoard.tsx/TaskCard.tsx/etc., but I haven't seen the file itself, so confirm before you commit this.)
+
+running-it.md
+md
+# Running It
+
+## Requirements
+
+- Node.js: `vX.X.X` ← paste your `node -v` output here
+- npm: `vX.X.X` ← paste your `npm -v` output here
+- Windows users: Visual Studio Build Tools with the "Desktop development with C++"
+  workload is required to compile `better-sqlite3`'s native module. See:
+  https://visualstudio.microsoft.com/visual-cpp-build-tools/
+
+## Install
+
+```bash
+git clone <repo-url>
+cd todo_lab
+npm install
+```
+
+## Run
+
+```bash
+npm run dev
+```
+
+Open http://localhost:3000. The SQLite database file is created automatically on
+first run at `data/app.db` — no manual setup step required.
+
+## Test
+
+```bash
+npm test
+```
+
+Tests run against a throwaway database (`test.db`, controlled via the `SQLITE_PATH`
+environment variable in `vitest.setup.ts`), not `data/app.db` — running them will not
+affect or require any data you've created by using the app. `test.db` is deleted and
+recreated automatically at the start of each test run.
+
+This Markdown template was generated with Claude-Web(Sonnet-5)
+Send me the two version outputs and I'll finalize.
+
+Files hidden in shared chats
+Its just I genuinely did not design the db. I might change it later though which is what designing is about I suppose.
+your versions:
+PS C:\Users\adria\MyGit\todo_lab> node -v
+v22.17.1
+PS C:\Users\adria\MyGit\todo_lab> npm -v
+11.6.0
+
+That's a fair point actually — design isn't just the initial call, it's also the decisions you make and reconsider afterward. You've already done that once this conversation (the overdue reconciliation, the date-only tradeoff). If you revisit the schema later — the topic free-text-vs-foreign-key question flagged in your handoff doc is still open — that'll be design work with your name on it. Worth keeping that framing for database-design.md when we get there: not "I designed this from scratch," but "here's the schema, here's what I understood/changed/decided about it."
+
+One thing before finalizing — package.json shows @dnd-kit/sortable and @dnd-kit/utilities installed, but I haven't seen them imported anywhere in the component files you've shared (TaskBoard.tsx and TaskCard.tsx only import from @dnd-kit/core). If they're unused, listing them with an invented justification would be dishonest — worse than just leaving them out. Can you check if they're used somewhere I haven't seen, or are they scaffold leftovers you should actually remove from package.json? Either answer is fine, I just don't want to fabricate a reason for a package that might be dead weight.
+
+third-party-code.md (final)
+md
+# Third-Party Code
+
+Every dependency you deliberately installed, with one honest sentence on why. Keep this
+list in sync with `package.json` — don't list something you removed, don't omit
+something you added.
+
+| Package | Why it was chosen |
+|---|---|
+| `next` | Framework required by the brief; App Router gives file-based routing and Server Actions without a separate API layer. |
+| `better-sqlite3` | Synchronous SQLite driver — no callback/Promise overhead for a local single-user app, and the most widely used SQLite binding for Node. |
+| `@types/better-sqlite3` | Type definitions so TypeScript can check calls into the database layer at compile time. |
+| `@dnd-kit/core` | Drag-and-drop between kanban columns (`DndContext`, `useDraggable`, `useDroppable`), without hand-rolling pointer/drop-zone logic. |
+| `@dnd-kit/sortable` | *(confirm usage — not seen imported yet; remove from here and from package.json if unused)* |
+| `@dnd-kit/utilities` | *(confirm usage — same as above)* |
+| `lucide-react` | Icon set used across the modals and cards (close, edit, archive, calendar, etc.). |
+| `vitest` | Fast, TypeScript-native test runner — avoids extra Babel/ts-jest config compared to Jest, and is what Next.js's own docs currently recommend as the default. |
+| `vite-tsconfig-paths` | Makes Vitest resolve the `@/*` import alias the same way Next.js does, since Vitest runs on Vite, a separate bundler that doesn't read `tsconfig.json` by default. |
+
+This Markdown template was generated with Claude-Web(Sonnet-5)
+running-it.md (final)
+md
+# Running It
+
+## Requirements
+
+- Node.js: `v22.17.1`
+- npm: `v11.6.0`
+- Windows users: Visual Studio Build Tools with the "Desktop development with C++"
+  workload is required to compile `better-sqlite3`'s native module. See:
+  https://visualstudio.microsoft.com/visual-cpp-build-tools/
+
+## Install
+
+```bash
+git clone <repo-url>
+cd todo_lab
+npm install
+```
+
+## Run
+
+```bash
+npm run dev
+```
+
+Open http://localhost:3000. The SQLite database file is created automatically on
+first run at `data/app.db` — no manual setup step required.
+
+## Test
+
+```bash
+npm test
+```
+
+Tests run against a throwaway database (`test.db`, controlled via the `SQLITE_PATH`
+environment variable in `vitest.setup.ts`), not `data/app.db` — running them will not
+affect or require any data you've created by using the app. `test.db` is deleted and
+recreated automatically at the start of each test run.
+
+This Markdown template was generated with Claude-Web(Sonnet-5)
+Sort out the @dnd-kit question, drop those two rows or fill them in, and both docs are done. After that: database-design.md (your call whether that's with me or the other tool), and the README AI Usage section.
+
+README AI usage sounds like the right call. @dnd-kit stuff i removed and the app website runs fine so i guess we remove them from the doc. btw there are still some bugs like when i add a ew card it doesn't show up until i reload the page but i will get to that after the documentation is done. create that context file before I run out of tokens!
+
+Good call flagging the reload bug rather than letting it slide — quick diagnosis so it's captured for later: TaskBoard.tsx does useState(initialTasks), and TaskFormModal calls router.refresh() after creating a task. router.refresh() re-runs page.tsx server-side and gets fresh initialTasks — but useState's initial value is only ever used on the first mount; a re-render with a new prop doesn't reset state that already exists. So the new task genuinely is being fetched, it's just not reaching the component's state. Likely fix later: a useEffect that syncs tasks state when initialTasks changes, or restructuring so TaskBoard doesn't hold its own copy at all. Not fixing now, per your call — just logging it accurately so future-you doesn't have to re-diagnose it.
+
+third-party-code.md — final table
+md
+| Package | Why it was chosen |
+|---|---|
+| `next` | Framework required by the brief; App Router gives file-based routing and Server Actions without a separate API layer. |
+| `better-sqlite3` | Synchronous SQLite driver — no callback/Promise overhead for a local single-user app, and the most widely used SQLite binding for Node. |
+| `@types/better-sqlite3` | Type definitions so TypeScript can check calls into the database layer at compile time. |
+| `@dnd-kit/core` | Drag-and-drop between kanban columns (`DndContext`, `useDraggable`, `useDroppable`), without hand-rolling pointer/drop-zone logic. |
+| `lucide-react` | Icon set used across the modals and cards (close, edit, archive, calendar, etc.). |
+| `vitest` | Fast, TypeScript-native test runner — avoids extra Babel/ts-jest config compared to Jest, and is what Next.js's own docs currently recommend as the default. |
+| `vite-tsconfig-paths` | Makes Vitest resolve the `@/*` import alias the same way Next.js does, since Vitest runs on Vite, a separate bundler that doesn't read `tsconfig.json` by default. |
+README.md — AI Usage section
+md
+## AI Usage
+
+This repository makes use of AI code generation using the following tools: Claude-Web[Claude Sonnet 5].
+
+This repository makes use of AI in-line editing using the following tools: (name your editor tool here, e.g. VSCode Copilot[model], or state "does not use" if you haven't used inline/autocomplete AI).
+
+This repository does not use AI code review.
+Fill in the in-line editing line honestly — if you haven't used Copilot/inline suggestions at all while writing this, change it to This repository does not use AI in-line editing tools. I can't answer that one for you.
+
+Now the context file, before you run low:
+
+
+Created a file, read a file
+Created a file, read a file
+Done — that's the full handoff, including the reload bug, the date-only decision, and the fake-policy-comment thing so nobody re-cites it as real later.
+
+
+Project context
+Document · MD 

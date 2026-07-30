@@ -1,6 +1,8 @@
 // AI Declaration: Generated with the assistance of Claude-Web[Claude Sonnet 5]
 
 import { TaskStatus } from './types';
+import { daysUntilDue } from './date';
+
 
 export type DueFlag = 'overdue' | 'today' | 'tomorrow' | 'week' | null;
 
@@ -16,15 +18,8 @@ export function getDueFlag(
 ): DueFlag {
   if (archived_at !== null || status === 'Complete') return null;
 
-  const due = new Date(due_date);
-  const now = new Date();
+  const diffDays = daysUntilDue(due_date);
 
-  // Compare by calendar day, not exact timestamp
-  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const dueDay = startOfDay(due);
-  const today = startOfDay(now);
-
-  const diffDays = Math.round((dueDay.getTime() - today.getTime()) / 86400000);
 
   if (diffDays < 0) return 'overdue';
   if (diffDays === 0) return 'today';

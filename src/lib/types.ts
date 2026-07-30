@@ -1,4 +1,5 @@
 // AI Declaration: Generated with the assistance of Claude-Web[Claude Sonnet 5]
+import { daysUntilDue } from './date';
 
 export type TaskStatus = 'Todo' | 'In-Progress' | 'Complete';
 
@@ -24,7 +25,7 @@ export interface Task extends TaskRow {
 }
 
 export function toTask(row: TaskRow): Task {
-  const isPast = new Date(row.due_date).getTime() < Date.now();
-  const overdue = isPast && row.status !== 'Complete' && row.archived_at === null;
+  const overdue = daysUntilDue(row.due_date) < 0 && row.status !== 'Complete' && row.archived_at === null;
+
   return { ...row, overdue };
 }
