@@ -8,9 +8,10 @@ for exact setup and run instructions, `docs/database-design.md` for the schema, 
 
 This repository makes use of AI code generation using the following tools:
 Claude-Web[Claude Sonnet 5].
+Google-Gemini (Search bot)
 
 This repository makes use of AI in-line editing using the following tools:
-<fill in, or state "None">.
+None
 
 This repository does not use AI code review.
 

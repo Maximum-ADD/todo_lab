@@ -5,9 +5,9 @@ import { createTask, getTasks, getArchivedTasks, archiveTask } from './tasks';
 
 // Every test starts from a clean table — without this, tasks from one test
 // would leak into the next and make results depend on run order.
-// beforeEach(() => {
-//   db.exec('DELETE FROM tasks');
-// });
+beforeEach(() => {
+  db.exec('DELETE FROM tasks');
+});
 
 describe('archiveTask', () => {
   it('removes the task from the active list and makes it viewable in archived', async () => {
