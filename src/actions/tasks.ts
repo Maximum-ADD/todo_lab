@@ -4,6 +4,22 @@
 import db from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { Task, TaskRow, SortField, toTask } from '@/lib/types';
+import { findOrCreateTopicId } from '@/lib/topics';
+
+// Raw shape of a `tasks` row as it actually exists in the DB now that
+// topic is a foreign key — distinct from TaskRow, which is the app-facing
+// shape with `topic` resolved back to a name via JOIN.
+interface TaskDbRow {
+  id: number;
+  title: string;
+  description: string | null;
+  due_date: string;
+  topic_id: number;
+  status: 'Todo' | 'In-Progress' | 'Complete';
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 /**
  * Fetch active (non-archived) tasks, sorted by the given field.
@@ -18,8 +34,11 @@ export async function getTasks(sortBy: SortField = 'due_date'): Promise<Task[]> 
 
   const rows = db
     .prepare(
-      `SELECT * FROM tasks WHERE archived_at IS NULL ORDER BY ${validSort[sortBy]}`
-    )
+      `SELECT tasks.*, topics.name as topic
+       FROM tasks
+       JOIN topics ON tasks.topic_id = topics.id
+       WHERE archived_at IS NULL
+       ORDER BY ${validSort[sortBy]}`    )
     .all() as TaskRow[];
 
   return rows.map(toTask);
@@ -42,14 +61,17 @@ export interface CreateTaskInput {
 }
 
 export async function createTask(input: CreateTaskInput) {
+  const topicId = findOrCreateTopicId(db, input.topic);
+
   db.prepare(
-    `INSERT INTO tasks (title, description, due_date, topic, status, created_at, updated_at)
-     VALUES (@title, @description, @due_date, @topic, 'Todo', datetime('now'), datetime('now'))`
+    `INSERT INTO tasks (title, description, due_date, topic_id, status, created_at, updated_at)
+    VALUES (@title, @description, @due_date, @topic_id, 'Todo', datetime('now'), datetime('now'))`
+
   ).run({
     title: input.title,
     description: input.description ?? null,
     due_date: input.due_date,
-    topic: input.topic,
+    topic_id: topicId,
   });
 
   revalidatePath('/');
@@ -66,22 +88,23 @@ export interface UpdateTaskInput {
 
 export async function updateTask(input: UpdateTaskInput) {
   const existing = db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(input.id) as
-    | TaskRow
+    | TaskDbRow
     | undefined;
   if (!existing) throw new Error(`Task ${input.id} not found`);
+  const topicId = input.topic ? findOrCreateTopicId(db, input.topic) : existing.topic_id;
 
   const updated = {
     title: input.title ?? existing.title,
     description: input.description ?? existing.description,
     due_date: input.due_date ?? existing.due_date,
-    topic: input.topic ?? existing.topic,
+    topic_id: topicId,
     status: input.status ?? existing.status,
   };
 
   db.prepare(
     `UPDATE tasks
      SET title = @title, description = @description, due_date = @due_date,
-         topic = @topic, status = @status, updated_at = datetime('now')
+        topic_id = @topic_id, status = @status, updated_at = datetime('now')
      WHERE id = @id`
   ).run({ ...updated, id: input.id });
 
