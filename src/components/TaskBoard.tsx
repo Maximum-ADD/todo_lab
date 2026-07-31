@@ -1,7 +1,7 @@
 // AI Declaration: Generated with the assistance of Claude-Web[Claude Sonnet 5]
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation';
 import { DndContext, useDroppable, DragEndEvent } from '@dnd-kit/core';
 import { Task, TaskStatus, SortField } from '@/lib/types';
@@ -50,6 +50,16 @@ export default function TaskBoard({
   const router = useRouter();
   const [tasks, setTasks] = useState(initialTasks);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  
+  // TaskBoard duplicates server state in useState for optimistic drag/archive
+  // updates. useState only reads initialTasks on first mount, so when
+  // router.refresh() (called after create/edit in TaskFormModal) produces a
+  // new initialTasks prop, this component won't pick it up on its own —
+  // this effect re-syncs local state whenever the prop actually changes.
+  useEffect(() => {
+    setTasks(initialTasks);
+  }, [initialTasks]);
+
   const [formMode, setFormMode] = useState<'closed' | 'create' | 'edit'>('closed');
   const [showArchived, setShowArchived] = useState(false);
 
