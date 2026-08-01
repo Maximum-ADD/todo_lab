@@ -33,3 +33,6 @@ https://claude.ai/share/2cbb4d13-cb82-404b-ad3b-19da8c867d59
 2026-08-01-UI-UX-overhaul:
 https://claude.ai/share/2cbb4d13-cb82-404b-ad3b-19da8c867d59
 Backup (truncated to this session's new content): backup_convos_txt/2026-08-01-UI-UX-overhaul.txt
+
+2026-08-01-rubric-review:
+https://claude.ai/share/a5fd7a5b-14fd-4854-ad9b-6fb5bdbe33b5
