@@ -4,18 +4,26 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { Task } from '@/lib/types';
-import { getArchivedTasks } from '@/actions/tasks';
+import { useRouter } from 'next/navigation';
+import { RotateCcw } from 'lucide-react';
+import { getArchivedTasks, unarchiveTask } from '@/actions/tasks';
 import { STATUS_LABEL, STATUS_BADGE_CLASSES } from '@/lib/statusStyles';
 
 export default function ArchivedView({ onClose }: { onClose: () => void }) {
+  const router = useRouter();
   const [tasks, setTasks] = useState<Task[] | null>(null);
 
   useEffect(() => {
     getArchivedTasks().then(setTasks);
   }, []);
 
+  async function handleUnarchive(id: number) {
+    setTasks((prev) => prev?.filter((t) => t.id !== id) ?? null);
+    await unarchiveTask(id);
+    router.refresh();
+  }
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>  
       <div
         className="bg-white rounded-xl p-5 w-[380px] max-h-[80vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
@@ -34,12 +42,23 @@ export default function ArchivedView({ onClose }: { onClose: () => void }) {
 
         <div className="flex flex-col gap-2">
           {tasks?.map((task) => (
+            
             <div key={task.id} className="border rounded-lg p-2.5">
               <div className="flex justify-between items-start">
                 <span className="text-sm font-medium">{task.title}</span>
-                <span className={`text-xs px-2 py-0.5 rounded ${STATUS_BADGE_CLASSES[task.status]}`}>
-                  {STATUS_LABEL[task.status]}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs px-2 py-0.5 rounded ${STATUS_BADGE_CLASSES[task.status]}`}>
+                    {STATUS_LABEL[task.status]}
+                  </span>
+                  <button
+                    aria-label="Unarchive task"
+                    title="Move back to active list"
+                    className="text-gray-400 hover:text-gray-700 transition-colors"
+                    onClick={() => handleUnarchive(task.id)}
+                  >
+                    <RotateCcw size={14} />
+                  </button>
+                </div>
               </div>
               <div className="text-xs text-gray-500 mt-1">
                 {task.topic} · was due {task.due_date}
@@ -51,3 +70,5 @@ export default function ArchivedView({ onClose }: { onClose: () => void }) {
     </div>
   );
 }
+
+
