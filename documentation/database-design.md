@@ -76,19 +76,5 @@ This means the app can't currently express "overdue as of 2pm today"; that's an
 accepted scope limitation, not an oversight, and would require storing time-of-day on
 `due_date` to change.
 
-## Example queries
 
-```sql
--- Active tasks, sorted by due date, with topic name resolved
-SELECT tasks.*, topics.name AS topic_name
-FROM tasks
-JOIN topics ON topics.id = tasks.topic_id
-WHERE tasks.archived_at IS NULL
-ORDER BY tasks.due_date ASC;
-
--- Archive a task (never DELETE)
-UPDATE tasks SET archived_at = datetime('now') WHERE id = ?;
-```
-
----
 This document was reviewed and edited with the assistance of: Claude-Web[Claude Sonnet 5]

@@ -2,8 +2,8 @@
 
 ## Requirements
 
-- Node.js: `vX.X.X` ← paste your `node -v` output here
-- npm: `vX.X.X` ← paste your `npm -v` output here
+- Node.js: `v22.17.1`
+- npm: `v11.6.0`
 - Windows users: Visual Studio Build Tools with the "Desktop development with C++"
   workload is required to compile `better-sqlite3`'s native module. See:
   https://visualstudio.microsoft.com/visual-cpp-build-tools/
