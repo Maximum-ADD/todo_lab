@@ -8,3 +8,7 @@ https://claude.ai/share/b870c273-0211-4d4c-88f7-1839e707af42
 [2026-07-31-testing-bug-fix](backup_convos_txt/2026-07-31-testing-bug-fix)
 2026-07-31-making-topics-a-foriegn-key:
 https://claude.ai/share/b870c273-0211-4d4c-88f7-1839e707af42
+2026-07-31-topis_test-case-and-db-design-doc:
+https://claude.ai/share/823d5835-6620-4e4e-abf8-6287ae59eb13
+2026-07-31-checking-docs-and-requirements-starting-ui-revamp:
+https://claude.ai/share/2cbb4d13-cb82-404b-ad3b-19da8c867d59

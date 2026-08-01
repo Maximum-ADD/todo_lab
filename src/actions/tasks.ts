@@ -116,3 +116,9 @@ export async function archiveTask(id: number) {
   db.prepare(`UPDATE tasks SET archived_at = datetime('now') WHERE id = ?`).run(id);
   revalidatePath('/');
 }
+
+/** Unarchive a task — sets archived_at back to NULL, returning it to the active list. */
+export async function unarchiveTask(id: number) {
+  db.prepare(`UPDATE tasks SET archived_at = NULL WHERE id = ?`).run(id);
+  revalidatePath('/');
+}

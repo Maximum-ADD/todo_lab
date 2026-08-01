@@ -2,8 +2,8 @@
 'use client';
 
 import { X, Pencil, Archive, Folder, Calendar, AlertTriangle } from 'lucide-react';
-import { Task } from '@/lib/types';
-import { STATUS_LABEL, STATUS_BADGE_CLASSES } from '@/lib/statusStyles';
+import { Task, TaskStatus } from '@/lib/types';
+import { STATUS_COLUMNS, STATUS_LABEL, STATUS_ACCENT, STATUS_BADGE_CLASSES } from '@/lib/statusStyles';
 import { getDueFlag, DUE_FLAG_LABEL, DUE_FLAG_CLASSES } from '@/lib/dueStatus';
 
 export default function TaskDetailModal({
@@ -11,11 +11,14 @@ export default function TaskDetailModal({
   onClose,
   onEdit,
   onArchive,
+  onStatusChange,
 }: {
   task: Task;
   onClose: () => void;
   onEdit: () => void;
   onArchive: () => void;
+  onStatusChange: (status: TaskStatus) => void;
+
 }) {
   const flag = getDueFlag(task.due_date, task.status, task.archived_at);
 
@@ -61,7 +64,23 @@ export default function TaskDetailModal({
             <Calendar size={13} /> Due {task.due_date}
           </div>
         </div>
-
+        <div className="flex gap-1.5 mb-4">
+          {STATUS_COLUMNS.map((s) => (
+            <button
+              key={s}
+              onClick={() => onStatusChange(s)}
+              disabled={s === task.status}
+              className="flex-1 font-mono text-[11px] uppercase px-2 py-1.5 rounded border-2 transition-colors disabled:cursor-default"
+              style={{
+                borderColor: STATUS_ACCENT[s],
+                backgroundColor: s === task.status ? STATUS_ACCENT[s] : 'white',
+                color: s === task.status ? 'white' : STATUS_ACCENT[s],
+              }}
+            >
+              {STATUS_LABEL[s]}
+            </button>
+          ))}
+        </div>
         <div className="flex gap-2 mt-4">
           <button
             className="flex-1 border rounded py-1.5 text-sm flex items-center justify-center gap-1"

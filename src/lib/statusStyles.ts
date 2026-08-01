@@ -17,3 +17,12 @@ export const STATUS_BADGE_CLASSES: Record<TaskStatus, string> = {
   'In-Progress': 'bg-amber-100 text-amber-700',
   Complete: 'bg-green-100 text-green-700',
 };
+
+// Accent colors used for the column top-bar and the card's left edge —
+// same hues as the badges above, so a task's color story is consistent
+// wherever it appears, just expressed as borders instead of fills here.
+export const STATUS_ACCENT: Record<TaskStatus, string> = {
+  Todo: '#2563EB',
+  'In-Progress': '#D97706',
+  Complete: '#059669',
+};

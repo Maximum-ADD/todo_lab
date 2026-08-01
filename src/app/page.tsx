@@ -19,7 +19,7 @@ export default async function HomePage({
   const tasks = await getTasks(sortBy);
 
   return (
-    <main className="max-w-5xl mx-auto p-6">
+    <main className="w-[72rem] mx-auto px-6 py-8">
       <TaskBoard initialTasks={tasks} sortBy={sortBy} />
     </main>
   );
