@@ -63,7 +63,7 @@ export default function TaskBoard({
   const router = useRouter();
   const [tasks, setTasks] = useState(initialTasks);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [viewMode, setViewMode] = useState<'board' | 'list'>('board');
+  const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all');
 
   // TaskBoard duplicates server state in useState for optimistic drag/archive
