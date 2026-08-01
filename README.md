@@ -8,12 +8,13 @@ for exact setup and run instructions, `docs/database-design.md` for the schema, 
 
 This repository makes use of AI code generation using the following tools:
 Claude-Web[Claude Sonnet 5].
-Google-Gemini (Search bot)
+Google-Gemini[gemini-3.5-flash or gemini-3.6-flash]
 
 This repository makes use of AI in-line editing using the following tools:
 None
 
-This repository does not use AI code review.
+This repository makes use of AI code review using the following tools:
+Claude-Web[Claude Sonnet 5].
 
 Full conversation transcripts are indexed in `transcripts/links_to_convos.md`.
 
