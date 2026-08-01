@@ -11,7 +11,7 @@
 ## Install
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/Maximum-ADD/todo_lab.git
 cd todo_lab
 npm install
 ```
