@@ -9,18 +9,19 @@ const VALID_SORTS: SortField[] = ['due_date', 'status', 'topic'];
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ sort?: string }>;
+  searchParams: Promise<{ sort?: string, dir?: string }>;
 }) {
   const params = await searchParams;
   const sortBy: SortField = VALID_SORTS.includes(params.sort as SortField)
     ? (params.sort as SortField)
     : 'due_date';
-
-  const tasks = await getTasks(sortBy);
+  
+    const sortDir: 'asc' | 'desc' = params.dir === 'desc' ? 'desc' : 'asc';
+    const tasks = await getTasks(sortBy, sortDir);
 
   return (
     <main className="w-[72rem] mx-auto px-6 py-8">
-      <TaskBoard initialTasks={tasks} sortBy={sortBy} />
+      <TaskBoard initialTasks={tasks} sortBy={sortBy} sortDir={sortDir} />
     </main>
   );
 }

@@ -48,7 +48,7 @@ export default function TaskListView({
 
       <div className="flex flex-col gap-2.5">
         {visible.map((task) => (
-          <TaskCard key={task.id} task={task} onOpen={onOpen} variant="list" />
+          <TaskCard key={task.id} task={task} onOpen={onOpen} />
         ))}
         {visible.length === 0 && (
           <p className="text-sm text-gray-400 font-mono">No tasks here.</p>

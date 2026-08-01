@@ -25,12 +25,13 @@ interface TaskDbRow {
  * Fetch active (non-archived) tasks, sorted by the given field.
  * `overdue` is computed here, not stored — see lib/types.ts.
  */
-export async function getTasks(sortBy: SortField = 'due_date'): Promise<Task[]> {
+export async function getTasks(sortBy: SortField = 'due_date', sortDir: 'asc' | 'desc' = 'asc'): Promise<Task[]> {
   const validSort: Record<SortField, string> = {
-    due_date: 'due_date ASC',
-    status: 'status ASC',
-    topic: 'topic ASC',
+    due_date: 'due_date',
+    status: 'status',
+    topic: 'topic',
   };
+  const direction = sortDir === 'desc' ? 'DESC' : 'ASC';
 
   const rows = db
     .prepare(
@@ -38,7 +39,8 @@ export async function getTasks(sortBy: SortField = 'due_date'): Promise<Task[]> 
        FROM tasks
        JOIN topics ON tasks.topic_id = topics.id
        WHERE archived_at IS NULL
-       ORDER BY ${validSort[sortBy]}`    )
+       ORDER BY ${validSort[sortBy]} ${direction}`
+    )
     .all() as TaskRow[];
 
   return rows.map(toTask);
@@ -122,3 +124,5 @@ export async function unarchiveTask(id: number) {
   db.prepare(`UPDATE tasks SET archived_at = NULL WHERE id = ?`).run(id);
   revalidatePath('/');
 }
+
+

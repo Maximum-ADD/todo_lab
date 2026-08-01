@@ -10,11 +10,9 @@ import { STATUS_ACCENT } from '@/lib/statusStyles';
 export default function TaskCard({
   task,
   onOpen,
-  variant = 'board',
 }: {
   task: Task;
   onOpen: (task: Task) => void;
-  variant?: 'board' | 'list';
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: task.id,
@@ -33,14 +31,10 @@ export default function TaskCard({
     return (
     <div
       ref={setNodeRef}
-      style={{
-        ...style,
-        borderColor: variant === 'list' ? STATUS_ACCENT[task.status] : undefined,
-        borderLeftColor: variant === 'board' ? STATUS_ACCENT[task.status] : undefined,
-      }}
-      className={`bg-white rounded-lg p-3.5 shadow-sm hover:shadow-md transition-shadow cursor-pointer ${
-        variant === 'list' ? 'border-2' : 'border border-gray-200 border-l-[3px]'
-      }`}
+      style={{ ...style, borderLeftColor: STATUS_ACCENT[task.status],
+              borderColor:  STATUS_ACCENT[task.status] }}
+
+      className="bg-white border border-gray-200 border-l-[6px] rounded-lg p-3.5 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
       onClick={() => onOpen(task)}
     >
       <div className="flex justify-between items-start gap-2">

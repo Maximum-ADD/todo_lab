@@ -14,7 +14,7 @@ import TaskFormModal from './TaskFormModal';
 import ArchivedView from './ArchivedView';
 import { LayoutGrid, List } from 'lucide-react';
 import TaskListView from './TaskListView';
-
+import { ArrowUp, ArrowDown } from 'lucide-react';
 
 function Column({
   status,
@@ -54,9 +54,11 @@ function Column({
 export default function TaskBoard({
   initialTasks,
   sortBy,
+  sortDir,
 }: {
   initialTasks: Task[];
   sortBy: SortField;
+  sortDir: 'asc' | 'desc';
 }) {
   const router = useRouter();
   const [tasks, setTasks] = useState(initialTasks);
@@ -76,11 +78,12 @@ export default function TaskBoard({
   const [showArchived, setShowArchived] = useState(false);
 
   function handleSortChange(newSort: SortField) {
-    // Sorting is done server-side in getTasks(); changing the URL query param
-    // triggers page.tsx to re-fetch with the new order.
-    router.push(`/?sort=${newSort}`);
+    router.push(`/?sort=${newSort}&dir=${sortDir}`);
   }
-  
+
+  function handleDirToggle() {
+    router.push(`/?sort=${sortBy}&dir=${sortDir === 'asc' ? 'desc' : 'asc'}`);
+  }
   async function handleStatusChange(id: number, newStatus: TaskStatus) {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t)));
     setSelectedTask((prev) => (prev && prev.id === id ? { ...prev, status: newStatus } : prev));
@@ -110,6 +113,7 @@ export default function TaskBoard({
     await archiveTask(id);
   }
 
+
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -125,6 +129,16 @@ export default function TaskBoard({
             <option value="status">Sort: status</option>
             <option value="topic">Sort: topic</option>
           </select>
+
+          <button
+            aria-label={sortDir === 'asc' ? 'Sort ascending' : 'Sort descending'}
+            title="Reverse sort direction"
+            className="border border-gray-200 rounded-lg p-2.5 text-gray-500 bg-white hover:bg-gray-50 transition-colors"
+            onClick={handleDirToggle}
+          >
+            {sortDir === 'asc' ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
+          </button>
+
           <div className="flex border border-gray-200 rounded-lg overflow-hidden">
             <button
               aria-label="Board view"
