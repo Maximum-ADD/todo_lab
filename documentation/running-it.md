@@ -8,6 +8,23 @@
   workload is required to compile `better-sqlite3`'s native module. See:
   https://visualstudio.microsoft.com/visual-cpp-build-tools/
 
+### Installing the right Node version
+
+`better-sqlite3` requires Node 22+. If you don't already have it, install
+[nvm](https://github.com/nvm-sh/nvm) and use it to install Node 22:
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+source ~/.bashrc   # or ~/.zshrc if you're using zsh
+nvm install 22
+nvm use 22
+```
+
+If your Node version is too old, `npm install` will still succeed but print an
+`EBADENGINE` warning for `better-sqlite3`, and `npm run dev` will appear to start
+normally, then silently exit right after `○ Compiling / ...` with no error message.
+If you hit that, check `node -v` and make sure you're on 22+.
+
 ## Install
 
 ```bash

@@ -36,3 +36,6 @@ Backup (truncated to this session's new content): backup_convos_txt/2026-08-01-U
 
 2026-08-01-rubric-review:
 https://claude.ai/share/a5fd7a5b-14fd-4854-ad9b-6fb5bdbe33b5
+
+2026-08-04-expanding-running-it:
+https://claude.ai/share/b2adc1ef-8963-4f33-9c53-2731ce9604b9
